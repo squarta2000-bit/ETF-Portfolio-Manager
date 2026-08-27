@@ -1,7 +1,7 @@
 
-  # ETF Portfolio Manager (Copy)
+  # ETF Portfolio Manager 
 
-  This is a code bundle for ETF Portfolio Manager (Copy). The original project is available at https://www.figma.com/design/AAG6ACf65Iu6ixVJ5EVkv0/ETF-Portfolio-Manager--Copy-.
+  This is a code bundle for ETF Portfolio Manager . The original project is available at https://www.figma.com/design/AAG6ACf65Iu6ixVJ5EVkv0/ETF-Portfolio-Manager--Copy-.
 
   ## Running the code
 
