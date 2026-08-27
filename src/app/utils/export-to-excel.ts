@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx'
+import ExcelJS from 'exceljs'
 import { PackageWithQuote } from '../types/etf'
 
 type PackageSnapshot = { packageId: string; isin: string; quote: number; timestamp: string }
@@ -45,58 +45,71 @@ const CURRENCY_FORMAT = '#,##0.00" €"'
 const PERCENT_FORMAT = '0.00"%"'
 const DATE_FORMAT = 'dd.mm.yyyy'
 
-const COLUMN_FORMATS: Record<string, string> = {
-  'Last Quote': CURRENCY_FORMAT,
-  'Daily %': PERCENT_FORMAT,
-  'Daily €': CURRENCY_FORMAT,
-  'Total Gain/Loss': CURRENCY_FORMAT,
-  'Gain/Loss %': PERCENT_FORMAT,
-  'Purchase Date': DATE_FORMAT,
-  'Purchase Price': CURRENCY_FORMAT,
-  Commission: CURRENCY_FORMAT,
-  'Total Dividends': CURRENCY_FORMAT,
+interface ColumnDef {
+  header: string
+  key: string
+  width: number
+  numFmt?: string
 }
 
-export function exportPackagesToExcel(
+const COLUMNS: ColumnDef[] = [
+  { header: 'Name', key: 'name', width: 20 },
+  { header: 'ISIN', key: 'isin', width: 16 },
+  { header: 'Last Quote', key: 'lastQuote', width: 14, numFmt: CURRENCY_FORMAT },
+  { header: 'Daily %', key: 'dailyPercentage', width: 12, numFmt: PERCENT_FORMAT },
+  { header: 'Daily €', key: 'dailyEuro', width: 14, numFmt: CURRENCY_FORMAT },
+  { header: 'Total Gain/Loss', key: 'totalGainLoss', width: 16, numFmt: CURRENCY_FORMAT },
+  { header: 'Gain/Loss %', key: 'gainLossPercentage', width: 14, numFmt: PERCENT_FORMAT },
+  { header: 'Quantity', key: 'quantity', width: 12 },
+  { header: 'Purchase Date', key: 'purchaseDate', width: 14, numFmt: DATE_FORMAT },
+  { header: 'Purchase Price', key: 'purchasePrice', width: 16, numFmt: CURRENCY_FORMAT },
+  { header: 'Commission', key: 'commission', width: 12, numFmt: CURRENCY_FORMAT },
+  { header: 'Total Dividends', key: 'totalDividends', width: 16, numFmt: CURRENCY_FORMAT },
+]
+
+function downloadWorkbook(buffer: ArrayBuffer, fileName: string) {
+  const blob = new Blob([buffer], { type: 'application/octet-stream' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+export async function exportPackagesToExcel(
   packages: PackageWithQuote[],
   packageSnapshots: Record<string, PackageSnapshot> = {}
 ) {
-  const rows = packages.map((pkg) => {
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet('Portfolio')
+
+  worksheet.columns = COLUMNS.map(({ header, key, width }) => ({ header, key, width }))
+  worksheet.getRow(1).font = { bold: true }
+
+  for (const pkg of packages) {
     const totalDividends = (pkg.dividends || []).reduce((sum, d) => sum + d.amount, 0)
 
-    return {
-      Name: pkg.shortName || pkg.name,
-      ISIN: pkg.isin,
-      'Last Quote': pkg.quote?.latestQuote ?? null,
-      'Daily %': pkg.quote ? calculateDailyPercentage(pkg, packageSnapshots) : null,
-      'Daily €': pkg.quote ? calculateDailyEuroAmount(pkg, packageSnapshots) : null,
-      'Total Gain/Loss': pkg.gainLossValue ?? null,
-      'Gain/Loss %': pkg.gainLossPercentage ?? null,
-      Quantity: pkg.quantity,
-      'Purchase Date': pkg.purchaseDate ? new Date(pkg.purchaseDate) : null,
-      'Purchase Price': pkg.purchasePrice,
-      Commission: pkg.commission || 0,
-      'Total Dividends': totalDividends,
-    }
-  })
-
-  const headers = Object.keys(rows[0] || {})
-  const worksheet = XLSX.utils.json_to_sheet(rows)
-
-  const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1')
-  for (let col = range.s.c; col <= range.e.c; col++) {
-    const format = COLUMN_FORMATS[headers[col]]
-    if (!format) continue
-
-    for (let row = range.s.r + 1; row <= range.e.r; row++) {
-      const cell = worksheet[XLSX.utils.encode_cell({ r: row, c: col })]
-      if (cell) cell.z = format
-    }
+    worksheet.addRow({
+      name: pkg.shortName || pkg.name,
+      isin: pkg.isin,
+      lastQuote: pkg.quote?.latestQuote ?? null,
+      dailyPercentage: pkg.quote ? calculateDailyPercentage(pkg, packageSnapshots) : null,
+      dailyEuro: pkg.quote ? calculateDailyEuroAmount(pkg, packageSnapshots) : null,
+      totalGainLoss: pkg.gainLossValue ?? null,
+      gainLossPercentage: pkg.gainLossPercentage ?? null,
+      quantity: pkg.quantity,
+      purchaseDate: pkg.purchaseDate ? new Date(pkg.purchaseDate) : null,
+      purchasePrice: pkg.purchasePrice,
+      commission: pkg.commission || 0,
+      totalDividends,
+    })
   }
 
-  worksheet['!cols'] = headers.map((header) => ({ wch: Math.max(header.length + 2, 12) }))
+  for (const { key, numFmt } of COLUMNS) {
+    if (numFmt) worksheet.getColumn(key).numFmt = numFmt
+  }
 
-  const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Portfolio')
-  XLSX.writeFile(workbook, buildFileName(new Date()))
+  const buffer = await workbook.xlsx.writeBuffer()
+  downloadWorkbook(buffer, buildFileName(new Date()))
 }

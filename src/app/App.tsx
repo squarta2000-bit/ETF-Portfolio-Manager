@@ -648,6 +648,16 @@ export default function App() {
     }
   }
 
+  // Export packages to Excel
+  const handleExportToExcel = async () => {
+    try {
+      await exportPackagesToExcel(packages, packageSnapshots)
+    } catch (error) {
+      console.error('Error exporting to Excel:', error)
+      toast.error('Failed to export portfolio to Excel')
+    }
+  }
+
   // Open statistics view
   const handleOpenStats = () => {
     setStatsDialogOpen(true)
@@ -856,7 +866,7 @@ export default function App() {
               <h2>Your ETF Packages</h2>
               <Button
                 variant="outline"
-                onClick={() => exportPackagesToExcel(packages, packageSnapshots)}
+                onClick={() => handleExportToExcel()}
               >
                 <Download className="size-4 mr-2" />
                 Save to XLS
