@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, RefreshCw, BarChart3, History } from 'lucide-react'
+import { Plus, RefreshCw, BarChart3, History, Download } from 'lucide-react'
 import { Button } from './components/ui/button'
 import { PackagesTable } from './components/PackagesTable'
 import { AddEditPackageDialog } from './components/AddEditPackageDialog'
@@ -11,6 +11,7 @@ import { StatisticsPage } from './components/StatisticsPage'
 import { HistoryDialog } from './components/HistoryDialog'
 import { HistoryPage } from './components/HistoryPage'
 import { useIsMobile } from './hooks/useIsMobile'
+import { exportPackagesToExcel } from './utils/export-to-excel'
 import { ETFPackage, PackageWithQuote, ETFQuote } from './types/etf'
 import { projectId, publicAnonKey } from './utils/supabase/info'
 import { toast } from 'sonner'
@@ -851,7 +852,16 @@ export default function App() {
           </div>
         ) : (
           <div className="space-y-4">
-            <h2>Your ETF Packages</h2>
+            <div className="flex items-center justify-between">
+              <h2>Your ETF Packages</h2>
+              <Button
+                variant="outline"
+                onClick={() => exportPackagesToExcel(packages, packageSnapshots)}
+              >
+                <Download className="size-4 mr-2" />
+                Save to XLS
+              </Button>
+            </div>
             <PackagesTable
               packages={packages}
               packageSnapshots={packageSnapshots}
