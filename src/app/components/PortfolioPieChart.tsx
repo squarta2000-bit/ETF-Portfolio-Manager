@@ -39,6 +39,14 @@ const SMALL_ROW_HEIGHT = 34
 const LABEL_EDGE_MARGIN = 8
 const MIN_LABEL_TEXT_WIDTH = 40
 const MIN_OUTER_RADIUS_RATIO = 0.6
+// The small-slice label column must sit farther from the ring than the
+// inline (big-slice) labels do, or the two systems' text can interleave
+// and overlap even when there's no overlap in occupied vertical space.
+const LABEL_OFFSET_SEPARATION = 10
+// Extra clearance added around the small-slice stack's occupied vertical
+// span when deciding whether a same-side inline label needs to be nudged
+// out of the way.
+const STACK_EDGE_BUFFER = 6
 // Conservative estimate of average glyph width as a fraction of font size --
 // deliberately generous (real text is often narrower) since underestimating
 // available width just truncates a character early, while overestimating it
@@ -62,6 +70,16 @@ type SmallSlice = {
   edgeX: number
   edgeY: number
   color: string
+  side: 'left' | 'right'
+}
+
+type BigSlice = {
+  index: number
+  x: number
+  y: number
+  color: string
+  percentage: number
+  lines: string[]
   side: 'left' | 'right'
 }
 
@@ -122,18 +140,24 @@ export function PortfolioPieChart({
     ? 90 - (cumulativeDegrees + 360) / 2
     : 0
 
-  // Declared fresh on every render of this component, so it never carries
+  // Declared fresh on every render of this component, so they never carry
   // state across renders; `renderLabel` below closes over this instance.
+  // Both big- and small-slice labels are collected here rather than
+  // rendered immediately, so the final pass (triggered by the last index)
+  // can lay them out with awareness of each other's position and avoid
+  // overlap between the two label systems.
   const smallSlices: SmallSlice[] = []
+  const bigSlices: BigSlice[] = []
 
   const renderLabel = (props: any) => {
     const { cx, cy, midAngle, index, name, value } = props
-    if (index === 0) smallSlices.length = 0
+    if (index === 0) {
+      smallSlices.length = 0
+      bigSlices.length = 0
+    }
     const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0
     const color = PORTFOLIO_CHART_COLORS[index % PORTFOLIO_CHART_COLORS.length]
     const isLastIndex = index === data.length - 1
-
-    let primary: React.ReactNode = null
 
     if (percentage > SMALL_SLICE_THRESHOLD) {
       const radius = effectiveOuterRadius + labelOffset
@@ -146,26 +170,7 @@ export function PortfolioPieChart({
       const truncateInline = (line: string) =>
         line.length > maxCharsInline ? `${line.slice(0, maxCharsInline - 1)}…` : line
       const lines = wrapName(name, nameWordsPerLine).map(truncateInline)
-
-      primary = (
-        <text
-          x={x}
-          y={y}
-          fill={color}
-          textAnchor={x > cx ? 'start' : 'end'}
-          dominantBaseline="central"
-          fontSize={fontSize}
-        >
-          {lines.map((line, lineIndex) => (
-            <tspan key={lineIndex} x={x} dy={lineIndex === 0 ? 0 : fontSize + 1}>
-              {line}
-            </tspan>
-          ))}
-          <tspan x={x} dy={fontSize + 1}>
-            {percentage.toFixed(1)}%
-          </tspan>
-        </text>
-      )
+      bigSlices.push({ index, x, y, color, percentage, lines, side: isRightSide ? 'right' : 'left' })
     } else {
       const edgeX = cx + effectiveOuterRadius * Math.cos(-midAngle * RADIAN)
       const edgeY = cy + effectiveOuterRadius * Math.sin(-midAngle * RADIAN)
@@ -180,18 +185,66 @@ export function PortfolioPieChart({
       })
     }
 
-    if (!isLastIndex || smallSlices.length === 0) {
-      return primary
+    if (!isLastIndex) {
+      return null
     }
 
     const leftSlices = smallSlices.filter(s => s.side === 'left').sort((a, b) => a.edgeY - b.edgeY)
     const rightSlices = smallSlices.filter(s => s.side === 'right').sort((a, b) => a.edgeY - b.edgeY)
 
-    const renderGroup = (slices: SmallSlice[], sideSign: 1 | -1) => {
+    const stackRange = (slices: SmallSlice[]): [number, number] | null => {
+      if (slices.length === 0) return null
+      const startY = cy - ((slices.length - 1) * SMALL_ROW_HEIGHT) / 2
+      return [
+        startY - SMALL_ROW_HEIGHT / 2 - STACK_EDGE_BUFFER,
+        startY + (slices.length - 1) * SMALL_ROW_HEIGHT + SMALL_ROW_HEIGHT / 2 + STACK_EDGE_BUFFER,
+      ]
+    }
+    const stackRanges = { left: stackRange(leftSlices), right: stackRange(rightSlices) }
+
+    const renderBigLabels = () =>
+      bigSlices.map(slice => {
+        const range = stackRanges[slice.side]
+        const halfHeight = (slice.lines.length + 1) * (fontSize + 1) / 2
+        let y = slice.y
+        if (range) {
+          const [stackTop, stackBottom] = range
+          if (y + halfHeight > stackTop && y - halfHeight < stackBottom) {
+            const distAbove = Math.abs(stackTop - halfHeight - y)
+            const distBelow = Math.abs(stackBottom + halfHeight - y)
+            y = distAbove <= distBelow ? stackTop - halfHeight : stackBottom + halfHeight
+          }
+        }
+        const textAnchor = slice.side === 'right' ? 'start' : 'end'
+
+        return (
+          <text
+            key={`big-${slice.index}`}
+            x={slice.x}
+            y={y}
+            fill={slice.color}
+            textAnchor={textAnchor}
+            dominantBaseline="central"
+            fontSize={fontSize}
+          >
+            {slice.lines.map((line, lineIndex) => (
+              <tspan key={lineIndex} x={slice.x} dy={lineIndex === 0 ? 0 : fontSize + 1}>
+                {line}
+              </tspan>
+            ))}
+            <tspan x={slice.x} dy={fontSize + 1}>
+              {slice.percentage.toFixed(1)}%
+            </tspan>
+          </text>
+        )
+      })
+
+    const renderSmallGroup = (slices: SmallSlice[], sideSign: 1 | -1) => {
       const maxReachFromCenter = cx - LABEL_EDGE_MARGIN
+      const minLabelOffsetFloor = Math.max(SMALL_ELBOW_OFFSET + 5, labelOffset + LABEL_OFFSET_SEPARATION)
       const maxLabelOffset = Math.max(
         maxReachFromCenter - effectiveOuterRadius - MIN_LABEL_TEXT_WIDTH,
-        SMALL_ELBOW_OFFSET + 5
+        minLabelOffsetFloor
       )
       const effectiveLabelOffset = Math.min(SMALL_LABEL_OFFSET, maxLabelOffset)
       const textAvailableWidth = Math.max(maxReachFromCenter - (effectiveOuterRadius + effectiveLabelOffset), 0)
@@ -238,10 +291,10 @@ export function PortfolioPieChart({
 
     return (
       <>
-        {primary}
+        <g>{renderBigLabels()}</g>
         <g>
-          {renderGroup(leftSlices, -1)}
-          {renderGroup(rightSlices, 1)}
+          {renderSmallGroup(leftSlices, -1)}
+          {renderSmallGroup(rightSlices, 1)}
         </g>
       </>
     )
