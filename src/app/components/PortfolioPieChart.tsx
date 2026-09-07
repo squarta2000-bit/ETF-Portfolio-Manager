@@ -51,9 +51,10 @@ const MIN_BAND_ITEM_WIDTH = 90
 const BAND_ITEM_GAP = 8
 const BAND_TOP_PADDING = 8
 const BAND_BOTTOM_PADDING = 8
-// Extra clearance kept between the band's bottom edge and the ring, so a
-// big-slice inline label near the top of the ring doesn't run into it.
-const TOP_CLEARANCE_BUFFER = 16
+// Extra breathing room added on top of an inline label's own estimated
+// height when checking how much vertical clearance the ring needs above
+// and below it.
+const INLINE_LABEL_HEIGHT_BUFFER = 10
 
 function wrapName(name: string, wordsPerLine: number): string[] {
   const words = name.split(' ')
@@ -129,8 +130,17 @@ export function PortfolioPieChart({
   const desiredOuterRadiusFromWidth = containerWidth > 0
     ? containerWidth / 2 - LABEL_EDGE_MARGIN - MIN_LABEL_TEXT_WIDTH
     : outerRadius
+  // A big-slice inline label can land anywhere around the ring, including
+  // right at the top (against the band) or bottom (against the container
+  // edge) -- so the ring needs equal clearance on both sides for whichever
+  // slice wraps to the most lines, not just a flat guess at label height.
+  const bigSliceNameLines = data
+    .filter(item => percentageOf(item.value) > SMALL_SLICE_THRESHOLD)
+    .map(item => wrapName(item.name, nameWordsPerLine).length)
+  const maxBigSliceLines = bigSliceNameLines.length > 0 ? Math.max(...bigSliceNameLines) : 1
+  const inlineLabelHalfHeight = ((maxBigSliceLines + 1) * (fontSize + 1)) / 2 + INLINE_LABEL_HEIGHT_BUFFER
   const desiredOuterRadiusFromHeight = containerWidth > 0
-    ? verticalRoomBelowBand / 2 - labelOffset - TOP_CLEARANCE_BUFFER
+    ? verticalRoomBelowBand / 2 - labelOffset - inlineLabelHalfHeight
     : outerRadius
   const minOuterRadius = outerRadius * MIN_OUTER_RADIUS_RATIO
   const effectiveOuterRadius = Math.min(
