@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
 
 export interface PortfolioPieChartDatum {
@@ -37,6 +38,7 @@ const SMALL_LABEL_OFFSET = 70
 const SMALL_ROW_HEIGHT = 34
 const LABEL_EDGE_MARGIN = 8
 const MIN_LABEL_TEXT_WIDTH = 40
+const MIN_OUTER_RADIUS_RATIO = 0.6
 const RADIAN = Math.PI / 180
 
 function wrapName(name: string, wordsPerLine: number): string[] {
@@ -67,7 +69,54 @@ export function PortfolioPieChart({
   nameWordsPerLine,
   fontSize,
 }: PortfolioPieChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [containerWidth, setContainerWidth] = useState(0)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const observer = new ResizeObserver(entries => {
+      const width = entries[0]?.contentRect.width
+      if (width) setContainerWidth(width)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
+  // Shrink the donut on narrow containers so leader-line labels get real
+  // horizontal room instead of relying on truncation. Falls back to the
+  // full configured radius until the container has been measured.
+  const desiredOuterRadius = containerWidth > 0
+    ? containerWidth / 2 - LABEL_EDGE_MARGIN - SMALL_ELBOW_OFFSET - MIN_LABEL_TEXT_WIDTH
+    : outerRadius
+  const minOuterRadius = outerRadius * MIN_OUTER_RADIUS_RATIO
+  const effectiveOuterRadius = Math.min(outerRadius, Math.max(desiredOuterRadius, minOuterRadius))
+  const radiusScale = effectiveOuterRadius / outerRadius
+  const effectiveInnerRadius = innerRadius * radiusScale
+
   const totalValue = data.reduce((sum, item) => sum + item.value, 0)
+
+  // Small slices (<=5%) always land at the tail of `data` -- callers sort
+  // their data descending by value before passing it in, so once a slice
+  // drops to/below the threshold every slice after it is small too. Rotate
+  // the whole pie so that run's angular midpoint sits at the top (12
+  // o'clock) instead of wherever it happens to fall by default, splitting
+  // it across the left and right label columns instead of clustering it
+  // entirely on one side.
+  let cumulativeDegrees = 0
+  let smallRunStartIndex = data.length
+  for (let i = 0; i < data.length; i++) {
+    const pct = totalValue > 0 ? (data[i].value / totalValue) * 100 : 0
+    if (pct <= SMALL_SLICE_THRESHOLD) {
+      smallRunStartIndex = i
+      break
+    }
+    cumulativeDegrees += pct * 3.6
+  }
+  const rotationOffset = smallRunStartIndex < data.length
+    ? 90 - (cumulativeDegrees + 360) / 2
+    : 0
+
   // Declared fresh on every render of this component, so it never carries
   // state across renders; `renderLabel` below closes over this instance.
   const smallSlices: SmallSlice[] = []
@@ -82,7 +131,7 @@ export function PortfolioPieChart({
     let primary: React.ReactNode = null
 
     if (percentage > SMALL_SLICE_THRESHOLD) {
-      const radius = outerRadius + labelOffset
+      const radius = effectiveOuterRadius + labelOffset
       const x = cx + radius * Math.cos(-midAngle * RADIAN)
       const y = cy + radius * Math.sin(-midAngle * RADIAN)
       const lines = wrapName(name, nameWordsPerLine)
@@ -107,8 +156,8 @@ export function PortfolioPieChart({
         </text>
       )
     } else {
-      const edgeX = cx + outerRadius * Math.cos(-midAngle * RADIAN)
-      const edgeY = cy + outerRadius * Math.sin(-midAngle * RADIAN)
+      const edgeX = cx + effectiveOuterRadius * Math.cos(-midAngle * RADIAN)
+      const edgeY = cy + effectiveOuterRadius * Math.sin(-midAngle * RADIAN)
       smallSlices.push({
         index,
         name,
@@ -130,18 +179,18 @@ export function PortfolioPieChart({
     const renderGroup = (slices: SmallSlice[], sideSign: 1 | -1) => {
       const maxReachFromCenter = cx - LABEL_EDGE_MARGIN
       const maxLabelOffset = Math.max(
-        maxReachFromCenter - outerRadius - MIN_LABEL_TEXT_WIDTH,
+        maxReachFromCenter - effectiveOuterRadius - MIN_LABEL_TEXT_WIDTH,
         SMALL_ELBOW_OFFSET + 5
       )
       const effectiveLabelOffset = Math.min(SMALL_LABEL_OFFSET, maxLabelOffset)
-      const textAvailableWidth = Math.max(maxReachFromCenter - (outerRadius + effectiveLabelOffset), 0)
+      const textAvailableWidth = Math.max(maxReachFromCenter - (effectiveOuterRadius + effectiveLabelOffset), 0)
       const maxChars = Math.max(Math.floor(textAvailableWidth / (fontSize * 0.6)), 3)
       const truncate = (line: string) => (line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line)
       const startY = cy - ((slices.length - 1) * SMALL_ROW_HEIGHT) / 2
       return slices.map((slice, i) => {
         const labelY = startY + i * SMALL_ROW_HEIGHT
-        const elbowX = cx + sideSign * (outerRadius + SMALL_ELBOW_OFFSET)
-        const labelX = cx + sideSign * (outerRadius + effectiveLabelOffset)
+        const elbowX = cx + sideSign * (effectiveOuterRadius + SMALL_ELBOW_OFFSET)
+        const labelX = cx + sideSign * (effectiveOuterRadius + effectiveLabelOffset)
         const textAnchor = sideSign === 1 ? 'start' : 'end'
         const textX = labelX + sideSign * 4
         const lines = wrapName(slice.name, nameWordsPerLine).map(truncate)
@@ -188,7 +237,7 @@ export function PortfolioPieChart({
   }
 
   return (
-    <div className="w-full" style={{ minHeight: `${height}px`, height: `${height}px` }}>
+    <div ref={containerRef} className="w-full" style={{ minHeight: `${height}px`, height: `${height}px` }}>
       <ResponsiveContainer width="100%" height={height}>
         <PieChart>
           <Pie
@@ -197,8 +246,10 @@ export function PortfolioPieChart({
             cy="50%"
             labelLine={false}
             label={renderLabel}
-            innerRadius={innerRadius}
-            outerRadius={outerRadius}
+            innerRadius={effectiveInnerRadius}
+            outerRadius={effectiveOuterRadius}
+            startAngle={rotationOffset}
+            endAngle={rotationOffset + 360}
             fill="#8884d8"
             dataKey="value"
             isAnimationActive={false}
