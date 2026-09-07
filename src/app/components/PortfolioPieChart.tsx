@@ -120,7 +120,7 @@ export function PortfolioPieChart({
     ? Math.max(1, Math.min(smallCount, Math.floor(effectiveContainerWidth / MIN_BAND_ITEM_WIDTH)))
     : 0
   const bandRows = smallCount > 0 ? Math.ceil(smallCount / itemsPerRow) : 0
-  const bandRowHeight = 2 * (fontSize + 1) + 6 // name line + percentage line, plus gap
+  const bandRowHeight = 2 * (fontSize + 1) + 10 // name line + percentage line, plus gap to the next row
   const bandHeight = smallCount > 0 ? BAND_TOP_PADDING + bandRows * bandRowHeight + BAND_BOTTOM_PADDING : 0
 
   // Shrink the donut so it fits both the container's width and whatever
@@ -266,7 +266,7 @@ export function PortfolioPieChart({
         // fontSize/2 past its own anchor -- the connector line needs to
         // end below that whole block, not midway through it, or it cuts
         // across the percentage text.
-        const labelBlockBottom = labelY + (fontSize + 1) + fontSize / 2 + 5
+        const labelBlockBottom = labelY + (fontSize + 1) + fontSize / 2 + 2
 
         return (
           <g key={`small-${slice.index}`}>
