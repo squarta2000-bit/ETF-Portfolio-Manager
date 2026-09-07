@@ -35,6 +35,8 @@ const SMALL_SLICE_THRESHOLD = 5
 const SMALL_ELBOW_OFFSET = 15
 const SMALL_LABEL_OFFSET = 70
 const SMALL_ROW_HEIGHT = 34
+const LABEL_EDGE_MARGIN = 8
+const MIN_LABEL_TEXT_WIDTH = 40
 const RADIAN = Math.PI / 180
 
 function wrapName(name: string, wordsPerLine: number): string[] {
@@ -126,14 +128,26 @@ export function PortfolioPieChart({
     const rightSlices = smallSlices.filter(s => s.side === 'right').sort((a, b) => a.edgeY - b.edgeY)
 
     const renderGroup = (slices: SmallSlice[], sideSign: 1 | -1) => {
+      const maxReachFromCenter = cx - LABEL_EDGE_MARGIN
+      const maxLabelOffset = Math.max(
+        maxReachFromCenter - outerRadius - MIN_LABEL_TEXT_WIDTH,
+        SMALL_ELBOW_OFFSET + 5
+      )
+      const effectiveLabelOffset = Math.min(SMALL_LABEL_OFFSET, maxLabelOffset)
+      const textAvailableWidth = Math.max(
+        maxReachFromCenter - (outerRadius + effectiveLabelOffset),
+        MIN_LABEL_TEXT_WIDTH
+      )
+      const maxChars = Math.max(Math.floor(textAvailableWidth / (fontSize * 0.6)), 3)
+      const truncate = (line: string) => (line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line)
       const startY = cy - ((slices.length - 1) * SMALL_ROW_HEIGHT) / 2
       return slices.map((slice, i) => {
         const labelY = startY + i * SMALL_ROW_HEIGHT
         const elbowX = cx + sideSign * (outerRadius + SMALL_ELBOW_OFFSET)
-        const labelX = cx + sideSign * (outerRadius + SMALL_LABEL_OFFSET)
+        const labelX = cx + sideSign * (outerRadius + effectiveLabelOffset)
         const textAnchor = sideSign === 1 ? 'start' : 'end'
         const textX = labelX + sideSign * 4
-        const lines = wrapName(slice.name, nameWordsPerLine)
+        const lines = wrapName(slice.name, nameWordsPerLine).map(truncate)
 
         return (
           <g key={`small-${slice.index}`}>
