@@ -189,6 +189,7 @@ export function PortfolioPieChart({
             outerRadius={outerRadius}
             fill="#8884d8"
             dataKey="value"
+            isAnimationActive={false}
           >
             {data.map((entry, index) => (
               <Cell key={`cell-${entry.isin}`} fill={PORTFOLIO_CHART_COLORS[index % PORTFOLIO_CHART_COLORS.length]} />
