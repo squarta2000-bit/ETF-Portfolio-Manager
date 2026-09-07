@@ -192,12 +192,23 @@ export function PortfolioPieChart({
     const leftSlices = smallSlices.filter(s => s.side === 'left').sort((a, b) => a.edgeY - b.edgeY)
     const rightSlices = smallSlices.filter(s => s.side === 'right').sort((a, b) => a.edgeY - b.edgeY)
 
+    // A wrapped name can take more than one line, so the fixed default row
+    // height isn't always enough to keep adjacent stacked labels apart --
+    // grow it to fit whichever slice in this group wraps to the most lines.
+    const computeRowHeight = (slices: SmallSlice[]) => {
+      if (slices.length === 0) return SMALL_ROW_HEIGHT
+      const maxNameLines = Math.max(...slices.map(s => wrapName(s.name, nameWordsPerLine).length))
+      const totalLines = maxNameLines + 1 // + the percentage line
+      return Math.max(SMALL_ROW_HEIGHT, totalLines * (fontSize + 1) + 6)
+    }
+
     const stackRange = (slices: SmallSlice[]): [number, number] | null => {
       if (slices.length === 0) return null
-      const startY = cy - ((slices.length - 1) * SMALL_ROW_HEIGHT) / 2
+      const rowHeight = computeRowHeight(slices)
+      const startY = cy - ((slices.length - 1) * rowHeight) / 2
       return [
-        startY - SMALL_ROW_HEIGHT / 2 - STACK_EDGE_BUFFER,
-        startY + (slices.length - 1) * SMALL_ROW_HEIGHT + SMALL_ROW_HEIGHT / 2 + STACK_EDGE_BUFFER,
+        startY - rowHeight / 2 - STACK_EDGE_BUFFER,
+        startY + (slices.length - 1) * rowHeight + rowHeight / 2 + STACK_EDGE_BUFFER,
       ]
     }
     const stackRanges = { left: stackRange(leftSlices), right: stackRange(rightSlices) }
@@ -241,18 +252,21 @@ export function PortfolioPieChart({
 
     const renderSmallGroup = (slices: SmallSlice[], sideSign: 1 | -1) => {
       const maxReachFromCenter = cx - LABEL_EDGE_MARGIN
-      const minLabelOffsetFloor = Math.max(SMALL_ELBOW_OFFSET + 5, labelOffset + LABEL_OFFSET_SEPARATION)
-      const maxLabelOffset = Math.max(
-        maxReachFromCenter - effectiveOuterRadius - MIN_LABEL_TEXT_WIDTH,
-        minLabelOffsetFloor
-      )
-      const effectiveLabelOffset = Math.min(SMALL_LABEL_OFFSET, maxLabelOffset)
+      const hardMinOffset = SMALL_ELBOW_OFFSET + 5
+      // Prefer sitting far enough from the ring to stay clear of the
+      // inline labels, but never let that preference push the anchor
+      // itself past the point where it's still safe to fit any text --
+      // staying fully on-screen always wins over the separation goal.
+      const preferredMinOffset = Math.max(hardMinOffset, labelOffset + LABEL_OFFSET_SEPARATION)
+      const safeMaxOffset = Math.max(maxReachFromCenter - effectiveOuterRadius - MIN_LABEL_TEXT_WIDTH, hardMinOffset)
+      const effectiveLabelOffset = Math.min(SMALL_LABEL_OFFSET, safeMaxOffset, preferredMinOffset)
       const textAvailableWidth = Math.max(maxReachFromCenter - (effectiveOuterRadius + effectiveLabelOffset), 0)
       const maxChars = Math.max(Math.floor(textAvailableWidth / (fontSize * CHAR_WIDTH_RATIO)), 3)
       const truncate = (line: string) => (line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line)
-      const startY = cy - ((slices.length - 1) * SMALL_ROW_HEIGHT) / 2
+      const rowHeight = computeRowHeight(slices)
+      const startY = cy - ((slices.length - 1) * rowHeight) / 2
       return slices.map((slice, i) => {
-        const labelY = startY + i * SMALL_ROW_HEIGHT
+        const labelY = startY + i * rowHeight
         const elbowX = cx + sideSign * (effectiveOuterRadius + SMALL_ELBOW_OFFSET)
         const labelX = cx + sideSign * (effectiveOuterRadius + effectiveLabelOffset)
         const textAnchor = sideSign === 1 ? 'start' : 'end'
