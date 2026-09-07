@@ -1,28 +1,12 @@
 import { Button } from './ui/button'
 import { PackageWithQuote } from '../types/etf'
 import { ArrowLeft } from 'lucide-react'
-import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
+import { PortfolioPieChart, PORTFOLIO_CHART_COLORS as COLORS } from './PortfolioPieChart'
 
 interface StatisticsPageProps {
   packages: PackageWithQuote[]
   onBack: () => void
 }
-
-// Generate distinct colors for the pie chart
-const COLORS = [
-  '#7C9CBF', // soft blue
-  '#8EBA9F', // soft green
-  '#E8B98A', // soft peach
-  '#D4A5A5', // soft rose
-  '#B4A3D8', // soft lavender
-  '#E5A9C3', // soft pink
-  '#88C5D1', // soft cyan
-  '#D9B38C', // soft tan
-  '#B5C99A', // soft sage
-  '#A9B4D6', // soft periwinkle
-  '#98C9C0', // soft teal
-  '#E3B8C5', // soft mauve
-]
 
 export function StatisticsPage({
   packages,
@@ -78,49 +62,6 @@ export function StatisticsPage({
     return `${gainLoss >= 0 ? '+' : ''}${formatted}%`
   }
 
-  // Custom label for pie chart with word wrapping
-  const renderLabel = (props: any) => {
-    const { cx, cy, midAngle, outerRadius, name, value, index } = props
-    const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0
-    
-    // Don't show label if percentage is too small
-    if (percentage <= 5) return null
-    
-    const RADIAN = Math.PI / 180
-    const radius = outerRadius + 25
-    const x = cx + radius * Math.cos(-midAngle * RADIAN)
-    const y = cy + radius * Math.sin(-midAngle * RADIAN)
-    
-    // Split name into words for wrapping - 1 word per line for mobile
-    const words = name.split(' ')
-    const maxWordsPerLine = 1
-    const lines: string[] = []
-    
-    for (let i = 0; i < words.length; i += maxWordsPerLine) {
-      lines.push(words.slice(i, i + maxWordsPerLine).join(' '))
-    }
-    
-    // Get the color for this label
-    const color = COLORS[index % COLORS.length]
-    
-    return (
-      <text
-        x={x}
-        y={y}
-        fill={color}
-        textAnchor={x > cx ? 'start' : 'end'}
-        dominantBaseline="central"
-        fontSize="12"
-      >
-        {lines.map((line, lineIndex) => (
-          <tspan key={lineIndex} x={x} dy={lineIndex === 0 ? 0 : 13}>
-            {line}
-          </tspan>
-        ))}
-      </text>
-    )
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <div className="max-w-3xl mx-auto px-4 py-6">
@@ -147,27 +88,15 @@ export function StatisticsPage({
           ) : (
             <>
               {/* Pie Chart */}
-              <div className="w-full" style={{ minHeight: '350px', height: '350px' }}>
-                <ResponsiveContainer width="100%" height={350}>
-                  <PieChart>
-                    <Pie
-                      data={sortedData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={renderLabel}
-                      innerRadius={60}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {sortedData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
+              <PortfolioPieChart
+                data={sortedData}
+                innerRadius={60}
+                outerRadius={100}
+                height={350}
+                labelOffset={25}
+                nameWordsPerLine={1}
+                fontSize={12}
+              />
 
               {/* Data Table */}
               <div className="border rounded-lg overflow-hidden">
