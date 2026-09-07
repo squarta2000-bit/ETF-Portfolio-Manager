@@ -261,11 +261,17 @@ export function PortfolioPieChart({
         const truncatedName = slice.name.length > maxCharsBand
           ? `${slice.name.slice(0, maxCharsBand - 1)}…`
           : slice.name
+        // The name line is centered on labelY, but the percentage line
+        // sits below it (offset by fontSize+1) and extends about another
+        // fontSize/2 past its own anchor -- the connector line needs to
+        // end below that whole block, not midway through it, or it cuts
+        // across the percentage text.
+        const labelBlockBottom = labelY + (fontSize + 1) + fontSize / 2 + 5
 
         return (
           <g key={`small-${slice.index}`}>
             <path
-              d={`M ${slice.edgeX} ${slice.edgeY} L ${labelX} ${labelY + bandRowHeight / 2}`}
+              d={`M ${slice.edgeX} ${slice.edgeY} L ${labelX} ${labelBlockBottom}`}
               fill="none"
               stroke={slice.color}
               strokeWidth={1.5}
