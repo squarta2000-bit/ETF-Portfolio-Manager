@@ -130,17 +130,23 @@ export function PortfolioPieChart({
   const desiredOuterRadiusFromWidth = containerWidth > 0
     ? containerWidth / 2 - LABEL_EDGE_MARGIN - MIN_LABEL_TEXT_WIDTH
     : outerRadius
-  // A big-slice inline label can land anywhere around the ring, including
-  // right at the top (against the band) or bottom (against the container
-  // edge) -- so the ring needs equal clearance on both sides for whichever
-  // slice wraps to the most lines, not just a flat guess at label height.
+  // A big-slice inline label anchored near the bottom of the ring is the
+  // tallest thing that needs to fit before the container's own bottom
+  // edge. Its text block is NOT centered on its anchor point -- the first
+  // tspan is centered there (dominantBaseline="central"), but every
+  // subsequent line is offset further down by `dy`, so a label with
+  // `n` total visual lines (wrapped name lines + 1 percentage line)
+  // extends about `(n-1) * (fontSize+1) + fontSize/2` below its anchor
+  // and only about `fontSize/2` above it. The downward extent is what
+  // can push past the container edge, so that's what constrains the
+  // ring's radius here.
   const bigSliceNameLines = data
     .filter(item => percentageOf(item.value) > SMALL_SLICE_THRESHOLD)
     .map(item => wrapName(item.name, nameWordsPerLine).length)
   const maxBigSliceLines = bigSliceNameLines.length > 0 ? Math.max(...bigSliceNameLines) : 1
-  const inlineLabelHalfHeight = ((maxBigSliceLines + 1) * (fontSize + 1)) / 2 + INLINE_LABEL_HEIGHT_BUFFER
+  const inlineLabelDownwardExtent = maxBigSliceLines * (fontSize + 1) + fontSize / 2 + INLINE_LABEL_HEIGHT_BUFFER
   const desiredOuterRadiusFromHeight = containerWidth > 0
-    ? verticalRoomBelowBand / 2 - labelOffset - inlineLabelHalfHeight
+    ? verticalRoomBelowBand / 2 - labelOffset - inlineLabelDownwardExtent
     : outerRadius
   const minOuterRadius = outerRadius * MIN_OUTER_RADIUS_RATIO
   const effectiveOuterRadius = Math.min(
