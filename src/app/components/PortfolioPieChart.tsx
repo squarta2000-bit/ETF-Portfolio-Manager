@@ -39,6 +39,11 @@ const SMALL_ROW_HEIGHT = 34
 const LABEL_EDGE_MARGIN = 8
 const MIN_LABEL_TEXT_WIDTH = 40
 const MIN_OUTER_RADIUS_RATIO = 0.6
+// Conservative estimate of average glyph width as a fraction of font size --
+// deliberately generous (real text is often narrower) since underestimating
+// available width just truncates a character early, while overestimating it
+// lets text clip past the container edge.
+const CHAR_WIDTH_RATIO = 0.7
 const RADIAN = Math.PI / 180
 
 function wrapName(name: string, wordsPerLine: number): string[] {
@@ -137,7 +142,7 @@ export function PortfolioPieChart({
       const isRightSide = x > cx
       const edgeLimit = isRightSide ? cx * 2 - LABEL_EDGE_MARGIN : LABEL_EDGE_MARGIN
       const availableWidth = Math.max(isRightSide ? edgeLimit - x : x - edgeLimit, MIN_LABEL_TEXT_WIDTH)
-      const maxCharsInline = Math.max(Math.floor(availableWidth / (fontSize * 0.6)), 3)
+      const maxCharsInline = Math.max(Math.floor(availableWidth / (fontSize * CHAR_WIDTH_RATIO)), 3)
       const truncateInline = (line: string) =>
         line.length > maxCharsInline ? `${line.slice(0, maxCharsInline - 1)}…` : line
       const lines = wrapName(name, nameWordsPerLine).map(truncateInline)
@@ -190,7 +195,7 @@ export function PortfolioPieChart({
       )
       const effectiveLabelOffset = Math.min(SMALL_LABEL_OFFSET, maxLabelOffset)
       const textAvailableWidth = Math.max(maxReachFromCenter - (effectiveOuterRadius + effectiveLabelOffset), 0)
-      const maxChars = Math.max(Math.floor(textAvailableWidth / (fontSize * 0.6)), 3)
+      const maxChars = Math.max(Math.floor(textAvailableWidth / (fontSize * CHAR_WIDTH_RATIO)), 3)
       const truncate = (line: string) => (line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line)
       const startY = cy - ((slices.length - 1) * SMALL_ROW_HEIGHT) / 2
       return slices.map((slice, i) => {
