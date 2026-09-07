@@ -134,7 +134,13 @@ export function PortfolioPieChart({
       const radius = effectiveOuterRadius + labelOffset
       const x = cx + radius * Math.cos(-midAngle * RADIAN)
       const y = cy + radius * Math.sin(-midAngle * RADIAN)
-      const lines = wrapName(name, nameWordsPerLine)
+      const isRightSide = x > cx
+      const edgeLimit = isRightSide ? cx * 2 - LABEL_EDGE_MARGIN : LABEL_EDGE_MARGIN
+      const availableWidth = Math.max(isRightSide ? edgeLimit - x : x - edgeLimit, MIN_LABEL_TEXT_WIDTH)
+      const maxCharsInline = Math.max(Math.floor(availableWidth / (fontSize * 0.6)), 3)
+      const truncateInline = (line: string) =>
+        line.length > maxCharsInline ? `${line.slice(0, maxCharsInline - 1)}…` : line
+      const lines = wrapName(name, nameWordsPerLine).map(truncateInline)
 
       primary = (
         <text
