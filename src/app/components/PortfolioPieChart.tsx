@@ -33,26 +33,27 @@ export const PORTFOLIO_CHART_COLORS = [
 ]
 
 const SMALL_SLICE_THRESHOLD = 5
-const SMALL_ELBOW_OFFSET = 15
-const SMALL_LABEL_OFFSET = 70
-const SMALL_ROW_HEIGHT = 34
 const LABEL_EDGE_MARGIN = 8
 const MIN_LABEL_TEXT_WIDTH = 40
-const MIN_OUTER_RADIUS_RATIO = 0.6
-// The small-slice label column must sit farther from the ring than the
-// inline (big-slice) labels do, or the two systems' text can interleave
-// and overlap even when there's no overlap in occupied vertical space.
-const LABEL_OFFSET_SEPARATION = 10
-// Extra clearance added around the small-slice stack's occupied vertical
-// span when deciding whether a same-side inline label needs to be nudged
-// out of the way.
-const STACK_EDGE_BUFFER = 6
+const MIN_OUTER_RADIUS_RATIO = 0.5
 // Conservative estimate of average glyph width as a fraction of font size --
 // deliberately generous (real text is often narrower) since underestimating
 // available width just truncates a character early, while overestimating it
 // lets text clip past the container edge.
 const CHAR_WIDTH_RATIO = 0.7
 const RADIAN = Math.PI / 180
+
+// Small-slice labels are laid out in a horizontal band above the donut
+// instead of side columns, so their connector lines never have to reach
+// across the donut and their text gets the chart's full width to work
+// with instead of a narrow side margin.
+const MIN_BAND_ITEM_WIDTH = 90
+const BAND_ITEM_GAP = 8
+const BAND_TOP_PADDING = 8
+const BAND_BOTTOM_PADDING = 8
+// Extra clearance kept between the band's bottom edge and the ring, so a
+// big-slice inline label near the top of the ring doesn't run into it.
+const TOP_CLEARANCE_BUFFER = 16
 
 function wrapName(name: string, wordsPerLine: number): string[] {
   const words = name.split(' ')
@@ -70,7 +71,6 @@ type SmallSlice = {
   edgeX: number
   edgeY: number
   color: string
-  side: 'left' | 'right'
 }
 
 type BigSlice = {
@@ -106,35 +106,59 @@ export function PortfolioPieChart({
     return () => observer.disconnect()
   }, [])
 
-  // Shrink the donut on narrow containers so leader-line labels get real
-  // horizontal room instead of relying on truncation. Falls back to the
-  // full configured radius until the container has been measured.
-  const desiredOuterRadius = containerWidth > 0
-    ? containerWidth / 2 - LABEL_EDGE_MARGIN - SMALL_ELBOW_OFFSET - MIN_LABEL_TEXT_WIDTH
+  const totalValue = data.reduce((sum, item) => sum + item.value, 0)
+  const percentageOf = (value: number) => (totalValue > 0 ? (value / totalValue) * 100 : 0)
+
+  // How many small-slice labels need a spot in the band, and how they're
+  // arranged into rows -- computed up front from `data` alone, so the
+  // band's reserved height (and therefore the ring's center and radius)
+  // is known before the ring itself renders.
+  const smallCount = data.filter(item => percentageOf(item.value) <= SMALL_SLICE_THRESHOLD).length
+  const effectiveContainerWidth = containerWidth > 0 ? containerWidth : outerRadius * 2 + labelOffset * 4
+  const itemsPerRow = smallCount > 0
+    ? Math.max(1, Math.min(smallCount, Math.floor(effectiveContainerWidth / MIN_BAND_ITEM_WIDTH)))
+    : 0
+  const bandRows = smallCount > 0 ? Math.ceil(smallCount / itemsPerRow) : 0
+  const bandRowHeight = 2 * (fontSize + 1) + 6 // name line + percentage line, plus gap
+  const bandHeight = smallCount > 0 ? BAND_TOP_PADDING + bandRows * bandRowHeight + BAND_BOTTOM_PADDING : 0
+
+  // Shrink the donut so it fits both the container's width and whatever
+  // vertical room is left below the band. Falls back to the full
+  // configured radius until the container has been measured.
+  const verticalRoomBelowBand = height - bandHeight
+  const desiredOuterRadiusFromWidth = containerWidth > 0
+    ? containerWidth / 2 - LABEL_EDGE_MARGIN - MIN_LABEL_TEXT_WIDTH
+    : outerRadius
+  const desiredOuterRadiusFromHeight = containerWidth > 0
+    ? verticalRoomBelowBand / 2 - labelOffset - TOP_CLEARANCE_BUFFER
     : outerRadius
   const minOuterRadius = outerRadius * MIN_OUTER_RADIUS_RATIO
-  const effectiveOuterRadius = Math.min(outerRadius, Math.max(desiredOuterRadius, minOuterRadius))
+  const effectiveOuterRadius = Math.min(
+    outerRadius,
+    Math.max(Math.min(desiredOuterRadiusFromWidth, desiredOuterRadiusFromHeight), minOuterRadius)
+  )
   const radiusScale = effectiveOuterRadius / outerRadius
   const effectiveInnerRadius = innerRadius * radiusScale
 
-  const totalValue = data.reduce((sum, item) => sum + item.value, 0)
+  // Center the ring in the space below the reserved band (or dead center
+  // of the whole height when there's no band, i.e. no small slices).
+  const ringCenterY = bandHeight + verticalRoomBelowBand / 2
+  const cyPercent = `${(ringCenterY / height) * 100}%`
 
   // Small slices (<=5%) always land at the tail of `data` -- callers sort
   // their data descending by value before passing it in, so once a slice
   // drops to/below the threshold every slice after it is small too. Rotate
   // the whole pie so that run's angular midpoint sits at the top (12
-  // o'clock) instead of wherever it happens to fall by default, splitting
-  // it across the left and right label columns instead of clustering it
-  // entirely on one side.
+  // o'clock), right under the band where its labels live, instead of
+  // wherever it happens to fall by default.
   let cumulativeDegrees = 0
   let smallRunStartIndex = data.length
   for (let i = 0; i < data.length; i++) {
-    const pct = totalValue > 0 ? (data[i].value / totalValue) * 100 : 0
-    if (pct <= SMALL_SLICE_THRESHOLD) {
+    if (percentageOf(data[i].value) <= SMALL_SLICE_THRESHOLD) {
       smallRunStartIndex = i
       break
     }
-    cumulativeDegrees += pct * 3.6
+    cumulativeDegrees += percentageOf(data[i].value) * 3.6
   }
   const rotationOffset = smallRunStartIndex < data.length
     ? 90 - (cumulativeDegrees + 360) / 2
@@ -144,8 +168,7 @@ export function PortfolioPieChart({
   // state across renders; `renderLabel` below closes over this instance.
   // Both big- and small-slice labels are collected here rather than
   // rendered immediately, so the final pass (triggered by the last index)
-  // can lay them out with awareness of each other's position and avoid
-  // overlap between the two label systems.
+  // can lay all of them out together.
   const smallSlices: SmallSlice[] = []
   const bigSlices: BigSlice[] = []
 
@@ -155,7 +178,7 @@ export function PortfolioPieChart({
       smallSlices.length = 0
       bigSlices.length = 0
     }
-    const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0
+    const percentage = percentageOf(value)
     const color = PORTFOLIO_CHART_COLORS[index % PORTFOLIO_CHART_COLORS.length]
     const isLastIndex = index === data.length - 1
 
@@ -174,142 +197,86 @@ export function PortfolioPieChart({
     } else {
       const edgeX = cx + effectiveOuterRadius * Math.cos(-midAngle * RADIAN)
       const edgeY = cy + effectiveOuterRadius * Math.sin(-midAngle * RADIAN)
-      smallSlices.push({
-        index,
-        name,
-        percentage,
-        edgeX,
-        edgeY,
-        color,
-        side: edgeX > cx ? 'right' : 'left',
-      })
+      smallSlices.push({ index, name, percentage, edgeX, edgeY, color })
     }
 
     if (!isLastIndex) {
       return null
     }
 
-    const leftSlices = smallSlices.filter(s => s.side === 'left').sort((a, b) => a.edgeY - b.edgeY)
-    const rightSlices = smallSlices.filter(s => s.side === 'right').sort((a, b) => a.edgeY - b.edgeY)
-
-    // A wrapped name can take more than one line, so the fixed default row
-    // height isn't always enough to keep adjacent stacked labels apart --
-    // grow it to fit whichever slice in this group wraps to the most lines.
-    const computeRowHeight = (slices: SmallSlice[]) => {
-      if (slices.length === 0) return SMALL_ROW_HEIGHT
-      const maxNameLines = Math.max(...slices.map(s => wrapName(s.name, nameWordsPerLine).length))
-      const totalLines = maxNameLines + 1 // + the percentage line
-      return Math.max(SMALL_ROW_HEIGHT, totalLines * (fontSize + 1) + 6)
-    }
-
-    const stackRange = (slices: SmallSlice[]): [number, number] | null => {
-      if (slices.length === 0) return null
-      const rowHeight = computeRowHeight(slices)
-      const startY = cy - ((slices.length - 1) * rowHeight) / 2
-      return [
-        startY - rowHeight / 2 - STACK_EDGE_BUFFER,
-        startY + (slices.length - 1) * rowHeight + rowHeight / 2 + STACK_EDGE_BUFFER,
-      ]
-    }
-    const stackRanges = { left: stackRange(leftSlices), right: stackRange(rightSlices) }
-
     const renderBigLabels = () =>
-      bigSlices.map(slice => {
-        const range = stackRanges[slice.side]
-        const halfHeight = (slice.lines.length + 1) * (fontSize + 1) / 2
-        let y = slice.y
-        if (range) {
-          const [stackTop, stackBottom] = range
-          if (y + halfHeight > stackTop && y - halfHeight < stackBottom) {
-            const distAbove = Math.abs(stackTop - halfHeight - y)
-            const distBelow = Math.abs(stackBottom + halfHeight - y)
-            y = distAbove <= distBelow ? stackTop - halfHeight : stackBottom + halfHeight
-          }
-        }
-        const textAnchor = slice.side === 'right' ? 'start' : 'end'
-
-        return (
-          <text
-            key={`big-${slice.index}`}
-            x={slice.x}
-            y={y}
-            fill={slice.color}
-            textAnchor={textAnchor}
-            dominantBaseline="central"
-            fontSize={fontSize}
-          >
-            {slice.lines.map((line, lineIndex) => (
-              <tspan key={lineIndex} x={slice.x} dy={lineIndex === 0 ? 0 : fontSize + 1}>
-                {line}
-              </tspan>
-            ))}
-            <tspan x={slice.x} dy={fontSize + 1}>
-              {slice.percentage.toFixed(1)}%
+      bigSlices.map(slice => (
+        <text
+          key={`big-${slice.index}`}
+          x={slice.x}
+          y={slice.y}
+          fill={slice.color}
+          textAnchor={slice.side === 'right' ? 'start' : 'end'}
+          dominantBaseline="central"
+          fontSize={fontSize}
+        >
+          {slice.lines.map((line, lineIndex) => (
+            <tspan key={lineIndex} x={slice.x} dy={lineIndex === 0 ? 0 : fontSize + 1}>
+              {line}
             </tspan>
-          </text>
-        )
-      })
+          ))}
+          <tspan x={slice.x} dy={fontSize + 1}>
+            {slice.percentage.toFixed(1)}%
+          </tspan>
+        </text>
+      ))
 
-    const renderSmallGroup = (slices: SmallSlice[], sideSign: 1 | -1) => {
-      const maxReachFromCenter = cx - LABEL_EDGE_MARGIN
-      const hardMinOffset = SMALL_ELBOW_OFFSET + 5
-      // Prefer sitting far enough from the ring to stay clear of the
-      // inline labels, but never let that preference push the anchor
-      // itself past the point where it's still safe to fit any text --
-      // staying fully on-screen always wins over the separation goal.
-      const preferredMinOffset = Math.max(hardMinOffset, labelOffset + LABEL_OFFSET_SEPARATION)
-      const safeMaxOffset = Math.max(maxReachFromCenter - effectiveOuterRadius - MIN_LABEL_TEXT_WIDTH, hardMinOffset)
-      const effectiveLabelOffset = Math.min(SMALL_LABEL_OFFSET, safeMaxOffset, preferredMinOffset)
-      const textAvailableWidth = Math.max(maxReachFromCenter - (effectiveOuterRadius + effectiveLabelOffset), 0)
-      const maxChars = Math.max(Math.floor(textAvailableWidth / (fontSize * CHAR_WIDTH_RATIO)), 3)
-      const truncate = (line: string) => (line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line)
-      const rowHeight = computeRowHeight(slices)
-      const startY = cy - ((slices.length - 1) * rowHeight) / 2
-      return slices.map((slice, i) => {
-        const labelY = startY + i * rowHeight
-        const elbowX = cx + sideSign * (effectiveOuterRadius + SMALL_ELBOW_OFFSET)
-        const labelX = cx + sideSign * (effectiveOuterRadius + effectiveLabelOffset)
-        const textAnchor = sideSign === 1 ? 'start' : 'end'
-        const textX = labelX + sideSign * 4
-        const lines = wrapName(slice.name, nameWordsPerLine).map(truncate)
+    // Order left-to-right by each slice's actual horizontal position so
+    // connector lines never cross each other, then wrap into rows.
+    const orderedSmall = [...smallSlices].sort((a, b) => a.edgeX - b.edgeX)
+    const itemsThisPerRow = itemsPerRow || 1
+    const bandWidth = cx * 2
+
+    const renderBand = () =>
+      orderedSmall.map((slice, i) => {
+        const row = Math.floor(i / itemsThisPerRow)
+        const rowStart = row * itemsThisPerRow
+        const itemsInThisRow = Math.min(itemsThisPerRow, orderedSmall.length - rowStart)
+        const indexInRow = i - rowStart
+        const slotWidth = bandWidth / itemsInThisRow
+        const labelX = slotWidth * (indexInRow + 0.5)
+        const labelY = BAND_TOP_PADDING + bandRowHeight * (row + 0.5)
+        const maxCharsBand = Math.max(Math.floor((slotWidth - BAND_ITEM_GAP) / (fontSize * CHAR_WIDTH_RATIO)), 3)
+        const truncatedName = slice.name.length > maxCharsBand
+          ? `${slice.name.slice(0, maxCharsBand - 1)}…`
+          : slice.name
 
         return (
           <g key={`small-${slice.index}`}>
             <path
-              d={`M ${slice.edgeX} ${slice.edgeY} L ${elbowX} ${labelY} L ${labelX} ${labelY}`}
+              d={`M ${slice.edgeX} ${slice.edgeY} L ${labelX} ${labelY + bandRowHeight / 2}`}
               fill="none"
               stroke={slice.color}
               strokeWidth={1.5}
             />
             <text
-              x={textX}
+              x={labelX}
               y={labelY}
               fill={slice.color}
-              textAnchor={textAnchor}
+              textAnchor="middle"
               dominantBaseline="central"
               fontSize={fontSize}
             >
-              {lines.map((line, lineIndex) => (
-                <tspan key={lineIndex} x={textX} dy={lineIndex === 0 ? 0 : fontSize + 1}>
-                  {line}
-                </tspan>
-              ))}
-              <tspan x={textX} dy={fontSize + 1}>
+              <tspan x={labelX} dy={0}>
+                {truncatedName}
+              </tspan>
+              <tspan x={labelX} dy={fontSize + 1}>
                 {slice.percentage.toFixed(1)}%
               </tspan>
             </text>
           </g>
         )
       })
-    }
 
     return (
       <>
         <g>{renderBigLabels()}</g>
-        <g>
-          {renderSmallGroup(leftSlices, -1)}
-          {renderSmallGroup(rightSlices, 1)}
-        </g>
+        <g>{renderBand()}</g>
       </>
     )
   }
@@ -321,7 +288,7 @@ export function PortfolioPieChart({
           <Pie
             data={data}
             cx="50%"
-            cy="50%"
+            cy={cyPercent}
             labelLine={false}
             label={renderLabel}
             innerRadius={effectiveInnerRadius}
