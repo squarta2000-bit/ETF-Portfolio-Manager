@@ -5,29 +5,13 @@ import {
   DialogTitle,
 } from './ui/dialog'
 import { PackageWithQuote } from '../types/etf'
-import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts'
+import { PortfolioPieChart, PORTFOLIO_CHART_COLORS as COLORS } from './PortfolioPieChart'
 
 interface StatisticsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   packages: PackageWithQuote[]
 }
-
-// Generate distinct colors for the pie chart
-const COLORS = [
-  '#7C9CBF', // soft blue
-  '#8EBA9F', // soft green
-  '#E8B98A', // soft peach
-  '#D4A5A5', // soft rose
-  '#B4A3D8', // soft lavender
-  '#E5A9C3', // soft pink
-  '#88C5D1', // soft cyan
-  '#D9B38C', // soft tan
-  '#B5C99A', // soft sage
-  '#A9B4D6', // soft periwinkle
-  '#98C9C0', // soft teal
-  '#E3B8C5', // soft mauve
-]
 
 export function StatisticsDialog({
   open,
@@ -84,49 +68,6 @@ export function StatisticsDialog({
     return `${gainLoss >= 0 ? '+' : ''}${formatted}%`
   }
 
-  // Custom label for pie chart with word wrapping
-  const renderLabel = (props: any) => {
-    const { cx, cy, midAngle, outerRadius, name, value, index } = props
-    const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0
-    
-    // Don't show label if percentage is too small
-    if (percentage <= 5) return null
-    
-    const RADIAN = Math.PI / 180
-    const radius = outerRadius + 30
-    const x = cx + radius * Math.cos(-midAngle * RADIAN)
-    const y = cy + radius * Math.sin(-midAngle * RADIAN)
-    
-    // Split name into words for wrapping
-    const words = name.split(' ')
-    const maxWordsPerLine = 2
-    const lines: string[] = []
-    
-    for (let i = 0; i < words.length; i += maxWordsPerLine) {
-      lines.push(words.slice(i, i + maxWordsPerLine).join(' '))
-    }
-    
-    // Get the color for this label
-    const color = COLORS[index % COLORS.length]
-    
-    return (
-      <text
-        x={x}
-        y={y}
-        fill={color}
-        textAnchor={x > cx ? 'start' : 'end'}
-        dominantBaseline="central"
-        fontSize="13"
-      >
-        {lines.map((line, index) => (
-          <tspan key={index} x={x} dy={index === 0 ? 0 : 14}>
-            {line}
-          </tspan>
-        ))}
-      </text>
-    )
-  }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
@@ -142,27 +83,15 @@ export function StatisticsDialog({
           ) : (
             <>
               {/* Pie Chart */}
-              <div className="w-full" style={{ minHeight: '400px', height: '400px' }}>
-                <ResponsiveContainer width="100%" height={400}>
-                  <PieChart>
-                    <Pie
-                      data={sortedData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={renderLabel}
-                      innerRadius={70}
-                      outerRadius={120}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {sortedData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
+              <PortfolioPieChart
+                data={sortedData}
+                innerRadius={70}
+                outerRadius={120}
+                height={400}
+                labelOffset={30}
+                nameWordsPerLine={2}
+                fontSize={13}
+              />
 
               {/* Data Table */}
               <div className="border rounded-lg overflow-hidden">
