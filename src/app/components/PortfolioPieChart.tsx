@@ -72,6 +72,7 @@ export function PortfolioPieChart({
 
   const renderLabel = (props: any) => {
     const { cx, cy, midAngle, index, name, value } = props
+    if (index === 0) smallSlices.length = 0
     const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0
     const color = PORTFOLIO_CHART_COLORS[index % PORTFOLIO_CHART_COLORS.length]
     const isLastIndex = index === data.length - 1
