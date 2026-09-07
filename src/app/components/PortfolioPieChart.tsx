@@ -134,10 +134,7 @@ export function PortfolioPieChart({
         SMALL_ELBOW_OFFSET + 5
       )
       const effectiveLabelOffset = Math.min(SMALL_LABEL_OFFSET, maxLabelOffset)
-      const textAvailableWidth = Math.max(
-        maxReachFromCenter - (outerRadius + effectiveLabelOffset),
-        MIN_LABEL_TEXT_WIDTH
-      )
+      const textAvailableWidth = Math.max(maxReachFromCenter - (outerRadius + effectiveLabelOffset), 0)
       const maxChars = Math.max(Math.floor(textAvailableWidth / (fontSize * 0.6)), 3)
       const truncate = (line: string) => (line.length > maxChars ? `${line.slice(0, maxChars - 1)}…` : line)
       const startY = cy - ((slices.length - 1) * SMALL_ROW_HEIGHT) / 2
