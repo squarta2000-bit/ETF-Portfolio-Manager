@@ -318,17 +318,35 @@ export function PortfolioPieChart({
         const truncatedName = slice.name.length > maxCharsBand
           ? `${slice.name.slice(0, maxCharsBand - 1)}…`
           : slice.name
+        const percentageText = `${slice.percentage.toFixed(1)}%`
         // The name line is centered on labelY, but the percentage line
         // sits below it (offset by fontSize+1) and extends about another
-        // fontSize/2 past its own anchor -- the connector line needs to
-        // end below that whole block, not midway through it, or it cuts
-        // across the percentage text.
+        // fontSize/2 past its own anchor -- approaching from below the
+        // whole block (rather than midway through it) keeps the line from
+        // cutting across the percentage text.
         const labelBlockBottom = labelY + (fontSize + 1) + fontSize / 2 + 2
+        const dx = labelX - slice.naturalX
+        const blockCenterY = labelY + (fontSize + 1) / 2
+        // The elbow's second segment only reads as "pointing down into the
+        // block" when it's actually steeper than it is wide. Once a label
+        // has hugged the ring far enough sideways that the segment runs
+        // more horizontal than vertical, ending below the block makes the
+        // line double back on itself -- ending at the block's near side
+        // edge instead, level with its vertical centre, reads as the line
+        // pointing straight at the label.
+        const isMostlyHorizontal = Math.abs(dx) > Math.abs(blockCenterY - slice.naturalY)
+        let targetX = labelX
+        let targetY = labelBlockBottom
+        if (isMostlyHorizontal) {
+          const halfBlockWidth = Math.max(truncatedName.length, percentageText.length) * fontSize * CHAR_WIDTH_RATIO / 2
+          targetX = dx > 0 ? labelX - halfBlockWidth : labelX + halfBlockWidth
+          targetY = blockCenterY
+        }
 
         return (
           <g key={`small-${slice.index}`}>
             <path
-              d={`M ${slice.edgeX} ${slice.edgeY} L ${slice.naturalX} ${slice.naturalY} L ${labelX} ${labelBlockBottom}`}
+              d={`M ${slice.edgeX} ${slice.edgeY} L ${slice.naturalX} ${slice.naturalY} L ${targetX} ${targetY}`}
               fill="none"
               stroke={slice.color}
               strokeWidth={1.5}
@@ -345,7 +363,7 @@ export function PortfolioPieChart({
                 {truncatedName}
               </tspan>
               <tspan x={labelX} dy={fontSize + 1}>
-                {slice.percentage.toFixed(1)}%
+                {percentageText}
               </tspan>
             </text>
           </g>
