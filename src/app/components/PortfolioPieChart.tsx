@@ -254,8 +254,18 @@ export function PortfolioPieChart({
         const rowStart = row * itemsThisPerRow
         const itemsInThisRow = Math.min(itemsThisPerRow, orderedSmall.length - rowStart)
         const indexInRow = i - rowStart
-        const slotWidth = bandWidth / itemsInThisRow
-        const labelX = slotWidth * (indexInRow + 0.5)
+        // Every row shares the same column grid -- sized off the row length
+        // used for wrapping, not this row's own item count -- so a label's
+        // horizontal slot always matches its left-to-right rank among all
+        // small slices. Only the last row can be partial (row-major fill
+        // means it holds the highest-ranked, rightmost items), so it's
+        // right-aligned into the grid's trailing columns instead of
+        // centered: centering pulled a high-rank slice's label back toward
+        // the middle, crossing the connector line of a lower-rank slice
+        // in the row above.
+        const slotWidth = bandWidth / itemsThisPerRow
+        const columnOffset = itemsThisPerRow - itemsInThisRow
+        const labelX = slotWidth * (indexInRow + columnOffset + 0.5)
         const labelY = BAND_TOP_PADDING + bandRowHeight * (row + 0.5)
         const maxCharsBand = Math.max(Math.floor((slotWidth - BAND_ITEM_GAP) / (fontSize * CHAR_WIDTH_RATIO)), 3)
         const truncatedName = slice.name.length > maxCharsBand
