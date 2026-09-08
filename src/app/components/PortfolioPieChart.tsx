@@ -43,10 +43,13 @@ const MIN_OUTER_RADIUS_RATIO = 0.5
 const CHAR_WIDTH_RATIO = 0.7
 const RADIAN = Math.PI / 180
 
-// Small-slice labels are laid out in a horizontal band above the donut
-// instead of side columns, so their connector lines never have to reach
-// across the donut and their text gets the chart's full width to work
-// with instead of a narrow side margin.
+// Small-slice labels get a reserved strip above the donut instead of side
+// columns, so their connector lines never have to reach across the donut
+// and their text gets the chart's full width to work with instead of a
+// narrow side margin. This sizes that reservation conservatively (as if
+// every label needed a full row); the labels themselves usually need much
+// less than that, since they hug the ring wherever they can -- see
+// `renderBand` below.
 const MIN_BAND_ITEM_WIDTH = 90
 const BAND_ITEM_GAP = 8
 const BAND_TOP_PADDING = 8
@@ -72,6 +75,13 @@ type SmallSlice = {
   edgeX: number
   edgeY: number
   color: string
+  // Where this slice's label would sit if it just used the same
+  // ring-hugging formula as a big-slice inline label (own angle, radius =
+  // effectiveOuterRadius + labelOffset). Doubles as the elbow connector's
+  // bend point: the line follows the slice's true direction out to here,
+  // then bends toward wherever collision resolution actually placed it.
+  naturalX: number
+  naturalY: number
 }
 
 type BigSlice = {
@@ -213,7 +223,10 @@ export function PortfolioPieChart({
     } else {
       const edgeX = cx + effectiveOuterRadius * Math.cos(-midAngle * RADIAN)
       const edgeY = cy + effectiveOuterRadius * Math.sin(-midAngle * RADIAN)
-      smallSlices.push({ index, name, percentage, edgeX, edgeY, color })
+      const naturalRadius = effectiveOuterRadius + labelOffset
+      const naturalX = cx + naturalRadius * Math.cos(-midAngle * RADIAN)
+      const naturalY = cy + naturalRadius * Math.sin(-midAngle * RADIAN)
+      smallSlices.push({ index, name, percentage, edgeX, edgeY, color, naturalX, naturalY })
     }
 
     if (!isLastIndex) {
@@ -243,25 +256,64 @@ export function PortfolioPieChart({
       ))
 
     // Order left-to-right by each slice's actual horizontal position so
-    // connector lines never cross each other, then wrap into rows.
+    // connector lines never cross each other.
     const orderedSmall = [...smallSlices].sort((a, b) => a.edgeX - b.edgeX)
-    const itemsThisPerRow = itemsPerRow || 1
     const bandWidth = cx * 2
+
+    const naturalYs = orderedSmall.map(slice => slice.naturalY)
+    const minLabelVerticalGap = bandRowHeight
+
+    // The small-slice run is bordered by two big-slice labels: the largest
+    // slice (bigSlices[0]) wraps around to sit next to the run's leftmost
+    // (rank 0) member, and whichever big slice immediately precedes the
+    // run in the data sits next to its rightmost member. Thin slices are
+    // usually angularly tight, so hugging the ring at each one's own angle
+    // isn't automatically safe -- without a real ceiling here, a flank
+    // label can be pushed (or simply start) close enough to the ring to
+    // land on top of that neighbour's label.
+    const leftNeighbor = bigSlices[0]
+    const rightNeighbor = bigSlices[bigSlices.length - 1]
+    const leftBoundaryY = leftNeighbor ? leftNeighbor.y - minLabelVerticalGap : Infinity
+    const rightBoundaryY = rightNeighbor ? rightNeighbor.y - minLabelVerticalGap : Infinity
+
+    let centerIdx = 0
+    for (let i = 1; i < naturalYs.length; i++) {
+      if (naturalYs[i] < naturalYs[centerIdx]) centerIdx = i
+    }
+
+    // Each flank is anchored to its real boundary first, then resolution
+    // cascades inward toward the run's most central slice -- a label is
+    // only pushed further from the ring than its own natural angle gives
+    // it when the gap to its already-placed, more-flankward neighbour
+    // demands it. Anchoring at the boundary (rather than working outward
+    // from the centre) is what keeps a crowded run from ever overrunning
+    // the neighbouring big-slice labels on either side.
+    const leftPass = naturalYs.slice()
+    leftPass[0] = Math.min(naturalYs[0], leftBoundaryY)
+    for (let i = 1; i <= centerIdx; i++) {
+      leftPass[i] = Math.min(naturalYs[i], leftPass[i - 1] - minLabelVerticalGap)
+    }
+    const rightPass = naturalYs.slice()
+    rightPass[rightPass.length - 1] = Math.min(naturalYs[naturalYs.length - 1], rightBoundaryY)
+    for (let i = naturalYs.length - 2; i >= centerIdx; i--) {
+      rightPass[i] = Math.min(naturalYs[i], rightPass[i + 1] - minLabelVerticalGap)
+    }
+    const finalYs = naturalYs.map((_, i) => {
+      if (i < centerIdx) return leftPass[i]
+      if (i > centerIdx) return rightPass[i]
+      return Math.min(leftPass[i], rightPass[i])
+    })
+    const minAllowedY = BAND_TOP_PADDING + fontSize / 2
 
     const renderBand = () =>
       orderedSmall.map((slice, i) => {
-        const row = Math.floor(i / itemsThisPerRow)
         // Horizontal position is each label's rank among ALL small slices,
-        // spread evenly across the full band width -- not its position
-        // within its own row. Row only decides which text line a label
-        // sits on; keeping x purely rank-based means it's always strictly
-        // increasing left-to-right in step with the sorted slices, so a
-        // row that doesn't divide evenly (e.g. the last one holding the
-        // leftover items) still lines up with its neighbours instead of
-        // bunching toward the middle or one edge.
+        // spread evenly across the full band width, so left-to-right order
+        // always matches the sorted slices regardless of how the heights
+        // above worked out.
         const slotWidth = bandWidth / orderedSmall.length
         const labelX = slotWidth * (i + 0.5)
-        const labelY = BAND_TOP_PADDING + bandRowHeight * (row + 0.5)
+        const labelY = Math.max(finalYs[i], minAllowedY)
         const maxCharsBand = Math.max(Math.floor((slotWidth - BAND_ITEM_GAP) / (fontSize * CHAR_WIDTH_RATIO)), 3)
         const truncatedName = slice.name.length > maxCharsBand
           ? `${slice.name.slice(0, maxCharsBand - 1)}…`
@@ -276,7 +328,7 @@ export function PortfolioPieChart({
         return (
           <g key={`small-${slice.index}`}>
             <path
-              d={`M ${slice.edgeX} ${slice.edgeY} L ${labelX} ${labelBlockBottom}`}
+              d={`M ${slice.edgeX} ${slice.edgeY} L ${slice.naturalX} ${slice.naturalY} L ${labelX} ${labelBlockBottom}`}
               fill="none"
               stroke={slice.color}
               strokeWidth={1.5}
