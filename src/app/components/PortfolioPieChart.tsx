@@ -251,21 +251,16 @@ export function PortfolioPieChart({
     const renderBand = () =>
       orderedSmall.map((slice, i) => {
         const row = Math.floor(i / itemsThisPerRow)
-        const rowStart = row * itemsThisPerRow
-        const itemsInThisRow = Math.min(itemsThisPerRow, orderedSmall.length - rowStart)
-        const indexInRow = i - rowStart
-        // Every row shares the same column grid -- sized off the row length
-        // used for wrapping, not this row's own item count -- so a label's
-        // horizontal slot always matches its left-to-right rank among all
-        // small slices. Only the last row can be partial (row-major fill
-        // means it holds the highest-ranked, rightmost items), so it's
-        // right-aligned into the grid's trailing columns instead of
-        // centered: centering pulled a high-rank slice's label back toward
-        // the middle, crossing the connector line of a lower-rank slice
-        // in the row above.
-        const slotWidth = bandWidth / itemsThisPerRow
-        const columnOffset = itemsThisPerRow - itemsInThisRow
-        const labelX = slotWidth * (indexInRow + columnOffset + 0.5)
+        // Horizontal position is each label's rank among ALL small slices,
+        // spread evenly across the full band width -- not its position
+        // within its own row. Row only decides which text line a label
+        // sits on; keeping x purely rank-based means it's always strictly
+        // increasing left-to-right in step with the sorted slices, so a
+        // row that doesn't divide evenly (e.g. the last one holding the
+        // leftover items) still lines up with its neighbours instead of
+        // bunching toward the middle or one edge.
+        const slotWidth = bandWidth / orderedSmall.length
+        const labelX = slotWidth * (i + 0.5)
         const labelY = BAND_TOP_PADDING + bandRowHeight * (row + 0.5)
         const maxCharsBand = Math.max(Math.floor((slotWidth - BAND_ITEM_GAP) / (fontSize * CHAR_WIDTH_RATIO)), 3)
         const truncatedName = slice.name.length > maxCharsBand
