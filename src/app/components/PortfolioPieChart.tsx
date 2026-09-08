@@ -305,36 +305,82 @@ export function PortfolioPieChart({
     })
     const minAllowedY = BAND_TOP_PADDING + fontSize / 2
 
-    // Each label's own even-split slot (see labelX below) is only a
-    // position, not a truncation budget: a short neighbour like "Battery"
-    // doesn't use its whole slot, and that slack is real room a longer
-    // name next to it can borrow. Estimate how much width each label
-    // actually needs so a neighbour's truncation limit can be based on
-    // what it truly occupies rather than an even share it may not need.
+    // Estimate how much width each label actually needs (its full,
+    // untruncated name) so horizontal spacing can be based on real
+    // requirements instead of an even share every label gets regardless
+    // of how long its name is.
     const idealTextWidths = orderedSmall.map(slice =>
       Math.max(slice.name.length, `${slice.percentage.toFixed(1)}%`.length) * fontSize * CHAR_WIDTH_RATIO
     )
+    const requiredGapX = (a: number, b: number) => idealTextWidths[a] / 2 + idealTextWidths[b] / 2 + BAND_ITEM_GAP
+
+    // Horizontal position starts from each label's own natural (ring-
+    // hugging) x -- the same point used as the elbow's bend -- and only
+    // spreads further apart than that when a neighbour's text would
+    // otherwise overlap. An even split across the whole band width used
+    // to push every flank label out to the same distance regardless of
+    // how much room its own name needed, truncating names that actually
+    // had slack around them and stretching flank connector lines further
+    // than necessary. Anchoring at the run's most central slice and
+    // cascading outward (the same shape as the height resolution above)
+    // preserves rank order -- and so the same no-crossing guarantee --
+    // while giving each label only as much room as it and its neighbours
+    // truly need.
+    const naturalXs = orderedSmall.map(slice => slice.naturalX)
+    const leftXPass = naturalXs.slice()
+    for (let i = centerIdx - 1; i >= 0; i--) {
+      leftXPass[i] = Math.min(naturalXs[i], leftXPass[i + 1] - requiredGapX(i, i + 1))
+    }
+    const rightXPass = naturalXs.slice()
+    for (let i = centerIdx + 1; i < naturalXs.length; i++) {
+      rightXPass[i] = Math.max(naturalXs[i], rightXPass[i - 1] + requiredGapX(i - 1, i))
+    }
+    const rawFinalXs = naturalXs.map((natural, i) => (i < centerIdx ? leftXPass[i] : i > centerIdx ? rightXPass[i] : natural))
+    const rawLeftEdge = rawFinalXs[0] - idealTextWidths[0] / 2
+    const rawRightEdge = rawFinalXs[rawFinalXs.length - 1] + idealTextWidths[idealTextWidths.length - 1] / 2
+    const rawSpan = rawRightEdge - rawLeftEdge
+    const availableSpan = bandWidth - 2 * LABEL_EDGE_MARGIN
+    // If the cascade's own span doesn't fit the chart (heavy crowding, or
+    // a narrow container), scale the whole layout down as a single rigid
+    // unit, anchored to the left margin, rather than clamping individual
+    // labels -- clamping only the ones that overflow could pull one past
+    // a neighbour that didn't need clamping, inverting their left-to-right
+    // order and reintroducing the very line-crossing this rank ordering
+    // exists to prevent. A single affine transform can only ever preserve
+    // order, whatever the scale.
+    const xScale = rawSpan > availableSpan ? availableSpan / rawSpan : 1
+    const finalXs = xScale < 1
+      ? rawFinalXs.map(x => LABEL_EDGE_MARGIN + (x - rawLeftEdge) * xScale)
+      : rawFinalXs.map(x => {
+          if (rawLeftEdge < LABEL_EDGE_MARGIN) return x + (LABEL_EDGE_MARGIN - rawLeftEdge)
+          if (rawRightEdge > bandWidth - LABEL_EDGE_MARGIN) return x - (rawRightEdge - (bandWidth - LABEL_EDGE_MARGIN))
+          return x
+        })
 
     const renderBand = () =>
       orderedSmall.map((slice, i) => {
-        // Horizontal position is each label's rank among ALL small slices,
-        // spread evenly across the full band width, so left-to-right order
-        // always matches the sorted slices regardless of how the heights
-        // above worked out.
-        const slotWidth = bandWidth / orderedSmall.length
-        const labelX = slotWidth * (i + 0.5)
+        const labelX = finalXs[i]
         const labelY = Math.max(finalYs[i], minAllowedY)
-        const leftGap = i === 0
-          ? labelX - LABEL_EDGE_MARGIN
-          : slotWidth - idealTextWidths[i - 1] / 2 - BAND_ITEM_GAP
-        const rightGap = i === orderedSmall.length - 1
-          ? bandWidth - LABEL_EDGE_MARGIN - labelX
-          : slotWidth - idealTextWidths[i + 1] / 2 - BAND_ITEM_GAP
-        const availableWidth = Math.max(Math.min(leftGap, rightGap) * 2, MIN_LABEL_TEXT_WIDTH)
-        const maxCharsBand = Math.max(Math.floor(availableWidth / (fontSize * CHAR_WIDTH_RATIO)), 3)
-        const truncatedName = slice.name.length > maxCharsBand
-          ? `${slice.name.slice(0, maxCharsBand - 1)}…`
-          : slice.name
+        const leftLimit = i === 0
+          ? LABEL_EDGE_MARGIN
+          : finalXs[i - 1] + idealTextWidths[i - 1] / 2 + BAND_ITEM_GAP
+        const rightLimit = i === orderedSmall.length - 1
+          ? bandWidth - LABEL_EDGE_MARGIN
+          : finalXs[i + 1] - idealTextWidths[i + 1] / 2 - BAND_ITEM_GAP
+        const availableWidth = Math.max(Math.min(labelX - leftLimit, rightLimit - labelX) * 2, MIN_LABEL_TEXT_WIDTH)
+        // The spacing above reserves exactly `idealTextWidths[i]` of width
+        // for this label whenever it isn't edge-clamped, so availableWidth
+        // and that ideal width are often the same value in principle --
+        // but arrived at through a different chain of floating-point
+        // arithmetic, so they can differ by a fraction of a pixel. Checking
+        // the actual widths first (with a tolerance) avoids flooring that
+        // fraction away into one fewer character than the name needs.
+        const truncatedName = availableWidth >= idealTextWidths[i] - 0.5
+          ? slice.name
+          : (() => {
+              const maxCharsBand = Math.max(Math.floor(availableWidth / (fontSize * CHAR_WIDTH_RATIO)), 3)
+              return slice.name.length > maxCharsBand ? `${slice.name.slice(0, maxCharsBand - 1)}…` : slice.name
+            })()
         const percentageText = `${slice.percentage.toFixed(1)}%`
         // The name line is centered on labelY, but the percentage line
         // sits below it (offset by fontSize+1) and extends about another
