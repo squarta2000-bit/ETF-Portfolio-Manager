@@ -350,8 +350,14 @@ export function PortfolioPieChart({
         // more horizontal than vertical, ending below the block makes the
         // line double back on itself -- ending at the block's near side
         // edge instead, level with its vertical centre, reads as the line
-        // pointing straight at the label.
-        const isMostlyHorizontal = Math.abs(dx) > Math.abs(blockCenterY - slice.naturalY)
+        // pointing straight at the label. Only the run's two flank slices
+        // actually hug the ring at big-slice height, though -- an interior
+        // slice's rank-based x can land far enough from its own natural
+        // angle to look "mostly horizontal" by the same test while it's
+        // still conceptually stacked above its slice, not off to the side,
+        // so restrict the side approach to those flanks.
+        const isFlank = i === 0 || i === orderedSmall.length - 1
+        const isMostlyHorizontal = isFlank && Math.abs(dx) > Math.abs(blockCenterY - slice.naturalY)
         let targetX = labelX
         let targetY = labelBlockBottom
         if (isMostlyHorizontal) {
