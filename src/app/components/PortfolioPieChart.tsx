@@ -305,6 +305,16 @@ export function PortfolioPieChart({
     })
     const minAllowedY = BAND_TOP_PADDING + fontSize / 2
 
+    // Each label's own even-split slot (see labelX below) is only a
+    // position, not a truncation budget: a short neighbour like "Battery"
+    // doesn't use its whole slot, and that slack is real room a longer
+    // name next to it can borrow. Estimate how much width each label
+    // actually needs so a neighbour's truncation limit can be based on
+    // what it truly occupies rather than an even share it may not need.
+    const idealTextWidths = orderedSmall.map(slice =>
+      Math.max(slice.name.length, `${slice.percentage.toFixed(1)}%`.length) * fontSize * CHAR_WIDTH_RATIO
+    )
+
     const renderBand = () =>
       orderedSmall.map((slice, i) => {
         // Horizontal position is each label's rank among ALL small slices,
@@ -314,7 +324,14 @@ export function PortfolioPieChart({
         const slotWidth = bandWidth / orderedSmall.length
         const labelX = slotWidth * (i + 0.5)
         const labelY = Math.max(finalYs[i], minAllowedY)
-        const maxCharsBand = Math.max(Math.floor((slotWidth - BAND_ITEM_GAP) / (fontSize * CHAR_WIDTH_RATIO)), 3)
+        const leftGap = i === 0
+          ? labelX - LABEL_EDGE_MARGIN
+          : slotWidth - idealTextWidths[i - 1] / 2 - BAND_ITEM_GAP
+        const rightGap = i === orderedSmall.length - 1
+          ? bandWidth - LABEL_EDGE_MARGIN - labelX
+          : slotWidth - idealTextWidths[i + 1] / 2 - BAND_ITEM_GAP
+        const availableWidth = Math.max(Math.min(leftGap, rightGap) * 2, MIN_LABEL_TEXT_WIDTH)
+        const maxCharsBand = Math.max(Math.floor(availableWidth / (fontSize * CHAR_WIDTH_RATIO)), 3)
         const truncatedName = slice.name.length > maxCharsBand
           ? `${slice.name.slice(0, maxCharsBand - 1)}…`
           : slice.name
